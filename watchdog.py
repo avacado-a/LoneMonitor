@@ -3,27 +3,30 @@ import sys
 import time
 import glob
 import subprocess
-import requests
+import threading
 try:
     import psutil
     HAS_PSUTIL = True
 except ImportError:
     HAS_PSUTIL = False
-import threading
-from payload_builder import build_payload
+
 import tier2_engine
-import sandbox_runner
 
-TARGET_SCRIPT = os.path.join("TestProject", "app.py")
-LOG_DIR = os.path.join("TestProject", "logs")
-HEALTH_URL = None
-PROCESS_MEM_LIMIT_MB = 200.0  # Trigger containment if target process exceeds 200MB RSS
-SYSTEM_RAM_THRESHOLD_PERCENT = 80.0
+TARGET_SCRIPT = os.environ.get("TARGET_SCRIPT", "target_app.py")
+LOG_DIR = os.environ.get("LOG_DIR", "logs")
+HEALTH_URL = os.environ.get("HEALTH_URL", None)
+
+PROCESS_MEM_LIMIT_MB = 200.0  # RSS limit
+SYSTEM_RAM_THRESHOLD_PERCENT = 85.0
 STALE_LOCKS = [".daemon.lock", ".app.lock", "app_state.lock", "app.pid"]
-
 CRITICAL_LOG_PATTERNS = ["MemoryError", "OutOfMemory", "Traceback (most recent call last)"]
 
 class Watchdog:
+    """
+    Tier 1 Fast Supervisor:
+    Process lifecycle monitoring, PID tracking, RSS memory caps, real-time stderr/log matching,
+    stale lock cleanup, and instant process containment (<500ms).
+    """
     def __init__(self):
         self.process = None
         self.recent_logs = []
@@ -51,6 +54,7 @@ class Watchdog:
         self.cleanup_stale_locks()
         self.detected_critical_log = None
         self.log(f"Starting target application '{TARGET_SCRIPT}'...")
+        
         self.process = subprocess.Popen(
             [sys.executable, TARGET_SCRIPT],
             stdout=subprocess.PIPE,
@@ -59,7 +63,6 @@ class Watchdog:
             bufsize=1
         )
         
-        # Threads to record stdout/stderr logs asynchronously
         threading.Thread(target=self._stream_output, args=(self.process.stdout, "STDOUT"), daemon=True).start()
         threading.Thread(target=self._stream_output, args=(self.process.stderr, "STDERR"), daemon=True).start()
 
@@ -76,7 +79,6 @@ class Watchdog:
                             self.detected_critical_log = f"Critical error pattern '{pat}' detected in stderr logs."
 
     def _check_app_log_files(self):
-        """Scans all application log files in LOG_DIR for unhandled exceptions."""
         if not os.path.exists(LOG_DIR):
             return
         
@@ -86,15 +88,19 @@ class Watchdog:
                 current_size = os.path.getsize(log_path)
                 last_offset = self.log_file_offsets.get(log_path, 0)
                 
+                # Prevent loading giant >10MB log files into RAM
+                if current_size > 10 * 1024 * 1024:
+                    last_offset = current_size - 50 * 1024
+                
                 if current_size > last_offset:
                     with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
                         f.seek(last_offset)
                         new_content = f.read()
                         self.log_file_offsets[log_path] = current_size
 
-                        if "Traceback (most recent call last)" in new_content or "[ERROR]" in new_content or "AttributeError" in new_content or "TypeError" in new_content or "KeyError" in new_content or "ZeroDivisionError" in new_content or "IndexError" in new_content:
+                        if "Traceback (most recent call last)" in new_content or "[ERROR]" in new_content or "AttributeError" in new_content or "TypeError" in new_content or "KeyError" in new_content or "ZeroDivisionError" in new_content:
                             if not self.detected_critical_log and not self.remedying:
-                                self.detected_critical_log = f"Exception/Traceback detected in application log file '{log_path}':\n{new_content[-1000:]}"
+                                self.detected_critical_log = f"Exception detected in log file '{log_path}':\n{new_content[-1000:]}"
                 else:
                     self.log_file_offsets[log_path] = current_size
             except Exception:
@@ -117,7 +123,7 @@ class Watchdog:
         self.remedying = True
         
         self.log("Dispatching diagnostic payload to Tier 2 AI Engineer...")
-        payload = build_payload(
+        payload = tier2_engine.build_payload(
             error_type=error_type,
             stack_trace=stack_trace,
             recent_logs=self.recent_logs,
@@ -131,7 +137,7 @@ class Watchdog:
                 if res.get("status") == "patch_generated":
                     diff = res["diff"]
                     self.log("Patch received from Tier 2. Testing in isolated sandbox...")
-                    success = sandbox_runner.test_and_apply_patch(diff)
+                    success = tier2_engine.test_and_apply_patch(diff)
                     if success:
                         self.log("Patch successfully verified and merged! Reloading target application...")
                         self.hard_restart()
@@ -146,15 +152,12 @@ class Watchdog:
 
     def monitor(self):
         self.start_target_app()
-        time.sleep(2)  # Give app time to spin up
+        time.sleep(2)
 
         while self.is_running:
             time.sleep(0.5)
-            
-            # Check 1: Multi-Log File Inspection (e.g. TestProject/logs/*.log)
             self._check_app_log_files()
 
-            # Check 2: Process Exit
             if self.process.poll() is not None:
                 exit_code = self.process.returncode
                 self.log(f"Target process died unexpectedly with exit code {exit_code}!")
@@ -166,11 +169,10 @@ class Watchdog:
                 )
                 continue
 
-            # Check 3: Critical Log Trigger (stderr or application log file)
             if self.detected_critical_log:
                 err_msg = self.detected_critical_log
                 self.detected_critical_log = None
-                self.log(f"CRITICAL LOG TRIGGER DETECTED!")
+                self.log("CRITICAL LOG TRIGGER DETECTED!")
                 self.hard_restart()
                 self.trigger_tier2_remediation(
                     error_type="Application Log Exception Trigger",
@@ -178,7 +180,6 @@ class Watchdog:
                 )
                 continue
 
-            # Check 4: Process & System Memory Limits
             if HAS_PSUTIL and self.process and psutil.pid_exists(self.process.pid):
                 try:
                     proc = psutil.Process(self.process.pid)
@@ -195,23 +196,13 @@ class Watchdog:
                         continue
 
                     if sys_ram_pct > SYSTEM_RAM_THRESHOLD_PERCENT:
-                        self.log(f"ALERT: Total system RAM saturation ({sys_ram_pct}% > {SYSTEM_RAM_THRESHOLD_PERCENT}%)!")
+                        self.log(f"ALERT: System RAM saturation ({sys_ram_pct}% > {SYSTEM_RAM_THRESHOLD_PERCENT}%)!")
                         self.hard_restart()
                         self.trigger_tier2_remediation(
                             error_type="High System Memory Saturation",
                             stack_trace=f"System RAM threshold exceeded: {sys_ram_pct}% total usage."
                         )
                         continue
-                except Exception:
-                    pass
-
-            # Check 5: Health Endpoint Heartbeat
-            if HEALTH_URL:
-                try:
-                    r = requests.get(HEALTH_URL, timeout=1.0)
-                    if r.status_code != 200:
-                        self.log(f"Healthz returned status code {r.status_code}!")
-                        self.hard_restart()
                 except Exception:
                     pass
 

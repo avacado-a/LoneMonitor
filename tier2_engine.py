@@ -1,6 +1,11 @@
-import json
 import os
 import re
+import sys
+import json
+import shutil
+import tempfile
+import pycompile
+import subprocess
 import ai
 
 CIRCUIT_BREAKER = {}
@@ -17,11 +22,53 @@ RULES:
 4. Do NOT rewrite unrelated code, refactor existing structures, or add new features.
 5. Modify at most 50 lines of code across all files.
 6. Ensure the patch handles edge cases, null inputs, or state cleanup safely.
-7. Use forward slashes in relative paths: `--- a/path/to/file` and `+++ b/path/to/file`. Do not use Windows backslashes.
+7. Use forward slashes in relative paths: `--- a/path/to/file` and `+++ b/path/to/file`.
 """
 
+def build_payload(error_type: str, stack_trace: str, recent_logs: list, affected_files: list = None, pid: int = None) -> dict:
+    """Packages runtime error context into a diagnostic JSON payload."""
+    return {
+        "timestamp": os.environ.get("TIMESTAMP", ""),
+        "error_type": error_type,
+        "stack_trace": stack_trace,
+        "recent_logs": recent_logs[-30:] if recent_logs else [],
+        "affected_files": affected_files or ["target_app.py"],
+        "process_id": pid
+    }
+
+def fix_diff_chunk_headers(diff_text: str) -> str:
+    """Recalculates unified diff hunk line counts (@@ -old,count +new,count @@)."""
+    lines = diff_text.splitlines()
+    fixed_lines = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if line.startswith("@@ "):
+            header_match = re.match(r"^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@(.*)$", line)
+            if header_match:
+                old_start = int(header_match.group(1))
+                new_start = int(header_match.group(2))
+                suffix = header_match.group(3)
+                
+                hunk_lines = []
+                j = i + 1
+                while j < len(lines) and not lines[j].startswith("@@ ") and not lines[j].startswith("diff --git"):
+                    hunk_lines.append(lines[j])
+                    j += 1
+                
+                old_count = sum(1 for hl in hunk_lines if hl.startswith(" ") or hl.startswith("-"))
+                new_count = sum(1 for hl in hunk_lines if hl.startswith(" ") or hl.startswith("+"))
+                
+                fixed_lines.append(f"@@ -{old_start},{old_count} +{new_start},{new_count} @@{suffix}")
+                fixed_lines.extend(hunk_lines)
+                i = j
+                continue
+        fixed_lines.append(line)
+        i += 1
+    return "\n".join(fixed_lines) + ("\n" if diff_text.endswith("\n") else "")
+
 def extract_diff(ai_response: str) -> str:
-    # Extract diff block
+    """Extracts unified diff block from LLM markdown response."""
     match = re.search(r"```(?:diff)?\n(diff --git.*?)```", ai_response, re.DOTALL)
     if match:
         diff_text = match.group(1).strip()
@@ -32,11 +79,9 @@ def extract_diff(ai_response: str) -> str:
         else:
             diff_text = ai_response.strip()
 
-    # Clean any trailing ``` fence if present
     if diff_text.endswith("```"):
         diff_text = diff_text[:-3].strip()
 
-    # Normalize Windows backslashes to forward slashes in diff headers
     diff_text = re.sub(r"--- a/([^\n\r]+)", lambda m: "--- a/" + m.group(1).replace("\\", "/"), diff_text)
     diff_text = re.sub(r"\+\+\+ b/([^\n\r]+)", lambda m: "+++ b/" + m.group(1).replace("\\", "/"), diff_text)
 
@@ -44,19 +89,82 @@ def extract_diff(ai_response: str) -> str:
 
 def validate_diff_size(diff_text: str) -> bool:
     lines = diff_text.splitlines()
-    changed_lines = [l for l in lines if l.startswith('+') or l.startswith('-')]
-    # Exclude header lines
-    changed_lines = [l for l in changed_lines if not (l.startswith('+++') or l.startswith('---'))]
+    changed_lines = [l for l in lines if (l.startswith('+') or l.startswith('-')) and not (l.startswith('+++') or l.startswith('---'))]
     return len(changed_lines) <= MAX_DIFF_LINES
 
+def test_and_apply_patch(diff_text: str, repo_dir: str = ".") -> bool:
+    """Verifies patch in an isolated temporary sandbox before merging into production."""
+    fixed_diff = fix_diff_chunk_headers(diff_text)
+    temp_dir = tempfile.mkdtemp(prefix="lone_sandbox_")
+    
+    try:
+        for item in os.listdir(repo_dir):
+            if item in [".git", "__pycache__", "logs", "scratch", ".venv"]:
+                continue
+            s = os.path.join(repo_dir, item)
+            d = os.path.join(temp_dir, item)
+            if os.path.isdir(s):
+                shutil.copytree(s, d)
+            else:
+                shutil.copy2(s, d)
+        
+        diff_file = os.path.join(temp_dir, "patch.diff")
+        with open(diff_file, "w", encoding="utf-8", newline="\n") as f:
+            f.write(fixed_diff)
+
+        res = subprocess.run(
+            ["git", "apply", "--ignore-whitespace", "--recount", "patch.diff"],
+            cwd=temp_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+
+        if res.returncode != 0:
+            print(f"[Sandbox Runner] Git apply failed:\n{res.stderr}")
+            return False
+
+        for root, _, files in os.walk(temp_dir):
+            for file in files:
+                if file.endswith(".py"):
+                    full_path = os.path.join(root, file)
+                    try:
+                        pycompile.compile(full_path, doraise=True)
+                    except Exception as err:
+                        print(f"[Sandbox Runner] Syntax compilation check failed for {file}: {err}")
+                        return False
+
+        prod_patch = os.path.join(repo_dir, "temp_patch.diff")
+        with open(prod_patch, "w", encoding="utf-8", newline="\n") as f:
+            f.write(fixed_diff)
+            
+        prod_apply = subprocess.run(
+            ["git", "apply", "--ignore-whitespace", "--recount", "temp_patch.diff"],
+            cwd=repo_dir,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        if os.path.exists(prod_patch):
+            os.remove(prod_patch)
+
+        return prod_apply.returncode == 0
+
+    except Exception as e:
+        print(f"[Sandbox Runner] Exception during verification: {e}")
+        return False
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
 def analyze_and_patch(payload: dict) -> dict:
+    """Dispatches payload to Tier 2 AI engine and verifies patches."""
     affected = payload.get("affected_files", ["target_app.py"])
     module = affected[0] if affected else "target_app.py"
     
-    # Normalize module key for circuit breaker tracking
     norm_module = os.path.normpath(module).replace("\\", "/").lower()
-    
     attempts = CIRCUIT_BREAKER.get(norm_module, 0)
+    
     if attempts >= MAX_PATCH_ATTEMPTS:
         print(f"[Tier 2 Circuit Breaker] Max patch attempts ({MAX_PATCH_ATTEMPTS}) reached for module '{module}'. Freezing auto-remediation.")
         return {"status": "circuit_breaker_tripped", "module": module}
@@ -77,7 +185,6 @@ def analyze_and_patch(payload: dict) -> dict:
 
     print(f"[Tier 2 Engine] Invoking AI model via ai.py (Attempt {CIRCUIT_BREAKER[norm_module]}/{MAX_PATCH_ATTEMPTS})...")
     ai_response = ai.request(messages, temperature=0.1)
-
     diff = extract_diff(ai_response)
 
     if not validate_diff_size(diff):
