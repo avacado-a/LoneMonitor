@@ -1,10 +1,11 @@
 import os
 import re
 import sys
+import time
 import json
 import shutil
 import tempfile
-import pycompile
+import py_compile  # FIXED: Corrected standard library module name
 import subprocess
 import ai
 
@@ -28,7 +29,7 @@ RULES:
 def build_payload(error_type: str, stack_trace: str, recent_logs: list, affected_files: list = None, pid: int = None) -> dict:
     """Packages runtime error context into a diagnostic JSON payload."""
     return {
-        "timestamp": os.environ.get("TIMESTAMP", ""),
+        "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         "error_type": error_type,
         "stack_trace": stack_trace,
         "recent_logs": recent_logs[-30:] if recent_logs else [],
@@ -112,6 +113,7 @@ def test_and_apply_patch(diff_text: str, repo_dir: str = ".") -> bool:
         with open(diff_file, "w", encoding="utf-8", newline="\n") as f:
             f.write(fixed_diff)
 
+        # Attempt git apply
         res = subprocess.run(
             ["git", "apply", "--ignore-whitespace", "--recount", "patch.diff"],
             cwd=temp_dir,
@@ -124,12 +126,13 @@ def test_and_apply_patch(diff_text: str, repo_dir: str = ".") -> bool:
             print(f"[Sandbox Runner] Git apply failed:\n{res.stderr}")
             return False
 
+        # Compile check using py_compile
         for root, _, files in os.walk(temp_dir):
             for file in files:
                 if file.endswith(".py"):
                     full_path = os.path.join(root, file)
                     try:
-                        pycompile.compile(full_path, doraise=True)
+                        py_compile.compile(full_path, doraise=True)
                     except Exception as err:
                         print(f"[Sandbox Runner] Syntax compilation check failed for {file}: {err}")
                         return False

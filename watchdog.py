@@ -111,6 +111,7 @@ class Watchdog:
         if self.process:
             try:
                 self.process.kill()
+                self.process.wait(timeout=3)
             except Exception:
                 pass
         self.cleanup_stale_locks()
