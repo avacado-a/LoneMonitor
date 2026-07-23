@@ -1,7 +1,11 @@
 import datetime
 import os
 import subprocess
-import psutil
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
 
 def get_git_commit():
     try:
@@ -12,15 +16,16 @@ def get_git_commit():
 
 def build_payload(error_type: str, stack_trace: str, recent_logs: list, affected_files: list = None, pid: int = None):
     system_metrics = {}
-    if pid and psutil.pid_exists(pid):
+    if HAS_PSUTIL and pid and psutil.pid_exists(pid):
         try:
             proc = psutil.Process(pid)
             system_metrics["cpu_percent"] = proc.cpu_percent(interval=0.1)
             system_metrics["memory_mb"] = proc.memory_info().rss / (1024 * 1024)
+            system_metrics["total_ram_percent"] = psutil.virtual_memory().percent
         except Exception:
             pass
-
-    system_metrics["total_ram_percent"] = psutil.virtual_memory().percent
+    else:
+        system_metrics["total_ram_percent"] = 50.0  # Fallback estimate
 
     return {
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z",

@@ -3,16 +3,23 @@ import sys
 import time
 import subprocess
 import requests
-import psutil
+try:
+    import psutil
+    HAS_PSUTIL = True
+except ImportError:
+    HAS_PSUTIL = False
 import threading
 from payload_builder import build_payload
 import tier2_engine
 import sandbox_runner
 
-TARGET_SCRIPT = "target_app.py"
-HEALTH_URL = "http://127.0.0.1:5000/healthz"
-RAM_THRESHOLD_PERCENT = 85.0
-STALE_LOCKS = ["app_state.lock", "app.pid"]
+TARGET_SCRIPT = os.path.join("TestProject", "app.py")
+HEALTH_URL = None
+PROCESS_MEM_LIMIT_MB = 200.0  # Trigger containment if target process exceeds 200MB RSS
+SYSTEM_RAM_THRESHOLD_PERCENT = 80.0
+STALE_LOCKS = [".daemon.lock", ".app.lock", "app_state.lock", "app.pid"]
+
+CRITICAL_LOG_PATTERNS = ["MemoryError", "OutOfMemory", "Traceback (most recent call last)"]
 
 class Watchdog:
     def __init__(self):
@@ -20,6 +27,7 @@ class Watchdog:
         self.recent_logs = []
         self.is_running = True
         self.remedying = False
+        self.detected_critical_log = None
 
     def log(self, msg: str):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -38,6 +46,7 @@ class Watchdog:
 
     def start_target_app(self):
         self.cleanup_stale_locks()
+        self.detected_critical_log = None
         self.log(f"Starting target application '{TARGET_SCRIPT}'...")
         self.process = subprocess.Popen(
             [sys.executable, TARGET_SCRIPT],
@@ -57,6 +66,12 @@ class Watchdog:
                 formatted = f"[{prefix}] {line.strip()}"
                 self.recent_logs.append(formatted)
                 print(formatted)
+                
+                # Instant log pattern detection for memory errors / unhandled crashes
+                if prefix == "STDERR":
+                    for pat in CRITICAL_LOG_PATTERNS:
+                        if pat in line and not self.detected_critical_log:
+                            self.detected_critical_log = f"Critical error pattern '{pat}' detected in stderr logs."
 
     def hard_restart(self):
         self.log("Performing immediate process containment & hard-restart...")
@@ -107,46 +122,69 @@ class Watchdog:
         time.sleep(2)  # Give app time to spin up
 
         while self.is_running:
-            time.sleep(1)
+            time.sleep(0.5)
             
             # Check 1: Process Exit
             if self.process.poll() is not None:
                 exit_code = self.process.returncode
                 self.log(f"Target process died unexpectedly with exit code {exit_code}!")
-                
-                # Snapshot stack trace from logs
                 stderr_logs = "\n".join([l for l in self.recent_logs if "[STDERR]" in l])
-                
-                # Immediate Tier 1 Containment & Restart
                 self.hard_restart()
-                
-                # Async Tier 2 dispatch
                 self.trigger_tier2_remediation(
                     error_type=f"Unexpected Process Exit (Code {exit_code})",
                     stack_trace=stderr_logs or "Process terminated without explicit exception stack trace."
                 )
                 continue
 
-            # Check 2: System Memory Threshold
-            mem_pct = psutil.virtual_memory().percent
-            if mem_pct > RAM_THRESHOLD_PERCENT:
-                self.log(f"ALERT: Memory usage saturation ({mem_pct}% > {RAM_THRESHOLD_PERCENT}%)!")
+            # Check 2: Instant Critical Log Trigger (e.g. MemoryError in stderr)
+            if self.detected_critical_log:
+                err_msg = self.detected_critical_log
+                self.detected_critical_log = None
+                self.log(f"CRITICAL LOG TRIGGER: {err_msg}")
+                stderr_logs = "\n".join([l for l in self.recent_logs if "[STDERR]" in l][-50:])
                 self.hard_restart()
                 self.trigger_tier2_remediation(
-                    error_type="High Memory Saturation / Potential Memory Leak",
-                    stack_trace=f"RAM threshold exceeded: {mem_pct}% total system usage."
+                    error_type="Critical Log Error / Memory Error",
+                    stack_trace=stderr_logs or err_msg
                 )
                 continue
 
-            # Check 3: Health Endpoint Heartbeat
-            try:
-                r = requests.get(HEALTH_URL, timeout=1.5)
-                if r.status_code != 200:
-                    self.log(f"Healthz returned status code {r.status_code}!")
-                    self.hard_restart()
-            except Exception as e:
-                # App unresponsive
-                pass
+            # Check 3: Process & System Memory Limits
+            if HAS_PSUTIL and self.process and psutil.pid_exists(self.process.pid):
+                try:
+                    proc = psutil.Process(self.process.pid)
+                    proc_mem_mb = proc.memory_info().rss / (1024 * 1024)
+                    sys_ram_pct = psutil.virtual_memory().percent
+
+                    if proc_mem_mb > PROCESS_MEM_LIMIT_MB:
+                        self.log(f"ALERT: Target process RSS memory cap breached ({proc_mem_mb:.1f}MB > {PROCESS_MEM_LIMIT_MB}MB)!")
+                        self.hard_restart()
+                        self.trigger_tier2_remediation(
+                            error_type="Target Process Memory Cap Exceeded",
+                            stack_trace=f"Process {self.process.pid} reached {proc_mem_mb:.1f}MB RSS memory usage."
+                        )
+                        continue
+
+                    if sys_ram_pct > SYSTEM_RAM_THRESHOLD_PERCENT:
+                        self.log(f"ALERT: Total system RAM saturation ({sys_ram_pct}% > {SYSTEM_RAM_THRESHOLD_PERCENT}%)!")
+                        self.hard_restart()
+                        self.trigger_tier2_remediation(
+                            error_type="High System Memory Saturation",
+                            stack_trace=f"System RAM threshold exceeded: {sys_ram_pct}% total usage."
+                        )
+                        continue
+                except Exception:
+                    pass
+
+            # Check 4: Health Endpoint Heartbeat
+            if HEALTH_URL:
+                try:
+                    r = requests.get(HEALTH_URL, timeout=1.0)
+                    if r.status_code != 200:
+                        self.log(f"Healthz returned status code {r.status_code}!")
+                        self.hard_restart()
+                except Exception:
+                    pass
 
 if __name__ == "__main__":
     wd = Watchdog()

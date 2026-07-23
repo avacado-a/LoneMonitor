@@ -11,25 +11,31 @@ SYSTEM_PROMPT = """SYSTEM INSTRUCTION: You are an autonomous software engineerin
 Your objective is to fix a production issue using the minimum necessary code changes.
 
 RULES:
-1. Output ONLY a valid Unified Git Diff inside a ```diff code block. Do not include markdown conversational explanations outside code blocks.
-2. Do NOT rewrite unrelated code, refactor existing structures, or add new features.
-3. Modify at most 50 lines of code across all files.
-4. Ensure the patch handles edge cases, null inputs, or state cleanup safely.
-5. In your diff, use standard relative file paths like `--- a/target_app.py` and `+++ b/target_app.py`.
+1. Output ONLY a valid Unified Git Diff inside a ```diff code block.
+2. Ensure every unchanged line in the diff starts with a single space ' '.
+3. Include valid chunk headers (e.g., @@ -15,8 +15,9 @@).
+4. Do NOT rewrite unrelated code, refactor existing structures, or add new features.
+5. Modify at most 50 lines of code across all files.
+6. Ensure the patch handles edge cases, null inputs, or state cleanup safely.
+7. Use standard relative file paths: `--- a/path/to/file` and `+++ b/path/to/file`.
 """
 
 def extract_diff(ai_response: str) -> str:
     # Extract diff block
     match = re.search(r"```(?:diff)?\n(diff --git.*?)```", ai_response, re.DOTALL)
     if match:
-        return match.group(1).strip()
-    
-    # Fallback search for unified diff header
-    match_fallback = re.search(r"(--- a/.*?\n\+\+\+ b/.*?\n@@.*)", ai_response, re.DOTALL)
-    if match_fallback:
-        return match_fallback.group(1).strip()
-        
-    return ai_response.strip()
+        diff_text = match.group(1).strip()
+    else:
+        match_fallback = re.search(r"(--- a/.*?\n\+\+\+ b/.*?\n@@.*)", ai_response, re.DOTALL)
+        if match_fallback:
+            diff_text = match_fallback.group(1).strip()
+        else:
+            diff_text = ai_response.strip()
+
+    # Clean any trailing ``` fence if present
+    if diff_text.endswith("```"):
+        diff_text = diff_text[:-3].strip()
+    return diff_text
 
 def validate_diff_size(diff_text: str) -> bool:
     lines = diff_text.splitlines()

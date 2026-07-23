@@ -1,0 +1,406 @@
+{
+  "batch_id": "SYNTH-1784837075",
+  "archive_subdirectory": "automated",
+  "records": [
+    {
+      "id": "REC-0",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 42.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-1",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 43.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-2",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 44.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-3",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 45.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-4",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 46.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-5",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 47.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-6",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 48.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-7",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 49.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-8",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 50.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-9",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 51.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-10",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 52.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-11",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 53.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-12",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 54.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-13",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 55.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-14",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 56.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-15",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 57.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-16",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 58.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-17",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 59.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-18",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 60.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-19",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 61.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-20",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 62.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-21",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 63.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-22",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 64.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-23",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 65.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-24",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 66.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-25",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 67.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-26",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 68.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-27",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 69.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-28",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 70.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-29",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 71.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-30",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 72.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-31",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 73.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-32",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 74.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-33",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 75.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-34",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 76.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-35",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 77.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-36",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 78.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-37",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 79.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-38",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 80.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-39",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 81.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-40",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 82.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-41",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 83.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-42",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 84.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-43",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 85.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-44",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 86.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-45",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 87.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-46",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 88.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-47",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 89.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-48",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 90.0,
+        "unit": "Celsius"
+      }
+    },
+    {
+      "id": "REC-49",
+      "category": "telemetry",
+      "metrics": {
+        "reading": 91.0,
+        "unit": "Celsius"
+      }
+    }
+  ]
+}
