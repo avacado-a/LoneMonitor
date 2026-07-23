@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import glob
 import subprocess
 import requests
 try:
@@ -14,6 +15,7 @@ import tier2_engine
 import sandbox_runner
 
 TARGET_SCRIPT = os.path.join("TestProject", "app.py")
+LOG_DIR = os.path.join("TestProject", "logs")
 HEALTH_URL = None
 PROCESS_MEM_LIMIT_MB = 200.0  # Trigger containment if target process exceeds 200MB RSS
 SYSTEM_RAM_THRESHOLD_PERCENT = 80.0
@@ -28,6 +30,7 @@ class Watchdog:
         self.is_running = True
         self.remedying = False
         self.detected_critical_log = None
+        self.log_file_offsets = {}
 
     def log(self, msg: str):
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -56,7 +59,7 @@ class Watchdog:
             bufsize=1
         )
         
-        # Threads to record logs asynchronously
+        # Threads to record stdout/stderr logs asynchronously
         threading.Thread(target=self._stream_output, args=(self.process.stdout, "STDOUT"), daemon=True).start()
         threading.Thread(target=self._stream_output, args=(self.process.stderr, "STDERR"), daemon=True).start()
 
@@ -67,11 +70,35 @@ class Watchdog:
                 self.recent_logs.append(formatted)
                 print(formatted)
                 
-                # Instant log pattern detection for memory errors / unhandled crashes
                 if prefix == "STDERR":
                     for pat in CRITICAL_LOG_PATTERNS:
                         if pat in line and not self.detected_critical_log:
                             self.detected_critical_log = f"Critical error pattern '{pat}' detected in stderr logs."
+
+    def _check_app_log_files(self):
+        """Scans all application log files in LOG_DIR for unhandled exceptions."""
+        if not os.path.exists(LOG_DIR):
+            return
+        
+        log_files = glob.glob(os.path.join(LOG_DIR, "*.log"))
+        for log_path in log_files:
+            try:
+                current_size = os.path.getsize(log_path)
+                last_offset = self.log_file_offsets.get(log_path, 0)
+                
+                if current_size > last_offset:
+                    with open(log_path, "r", encoding="utf-8", errors="ignore") as f:
+                        f.seek(last_offset)
+                        new_content = f.read()
+                        self.log_file_offsets[log_path] = current_size
+
+                        if "Traceback (most recent call last)" in new_content or "[ERROR]" in new_content or "AttributeError" in new_content or "TypeError" in new_content or "KeyError" in new_content or "ZeroDivisionError" in new_content or "IndexError" in new_content:
+                            if not self.detected_critical_log and not self.remedying:
+                                self.detected_critical_log = f"Exception/Traceback detected in application log file '{log_path}':\n{new_content[-1000:]}"
+                else:
+                    self.log_file_offsets[log_path] = current_size
+            except Exception:
+                pass
 
     def hard_restart(self):
         self.log("Performing immediate process containment & hard-restart...")
@@ -124,7 +151,10 @@ class Watchdog:
         while self.is_running:
             time.sleep(0.5)
             
-            # Check 1: Process Exit
+            # Check 1: Multi-Log File Inspection (e.g. TestProject/logs/*.log)
+            self._check_app_log_files()
+
+            # Check 2: Process Exit
             if self.process.poll() is not None:
                 exit_code = self.process.returncode
                 self.log(f"Target process died unexpectedly with exit code {exit_code}!")
@@ -136,20 +166,19 @@ class Watchdog:
                 )
                 continue
 
-            # Check 2: Instant Critical Log Trigger (e.g. MemoryError in stderr)
+            # Check 3: Critical Log Trigger (stderr or application log file)
             if self.detected_critical_log:
                 err_msg = self.detected_critical_log
                 self.detected_critical_log = None
-                self.log(f"CRITICAL LOG TRIGGER: {err_msg}")
-                stderr_logs = "\n".join([l for l in self.recent_logs if "[STDERR]" in l][-50:])
+                self.log(f"CRITICAL LOG TRIGGER DETECTED!")
                 self.hard_restart()
                 self.trigger_tier2_remediation(
-                    error_type="Critical Log Error / Memory Error",
-                    stack_trace=stderr_logs or err_msg
+                    error_type="Application Log Exception Trigger",
+                    stack_trace=err_msg
                 )
                 continue
 
-            # Check 3: Process & System Memory Limits
+            # Check 4: Process & System Memory Limits
             if HAS_PSUTIL and self.process and psutil.pid_exists(self.process.pid):
                 try:
                     proc = psutil.Process(self.process.pid)
@@ -176,7 +205,7 @@ class Watchdog:
                 except Exception:
                     pass
 
-            # Check 4: Health Endpoint Heartbeat
+            # Check 5: Health Endpoint Heartbeat
             if HEALTH_URL:
                 try:
                     r = requests.get(HEALTH_URL, timeout=1.0)

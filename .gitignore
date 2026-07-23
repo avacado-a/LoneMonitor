@@ -1,0 +1,38 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Database files
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Log files
+*.log
+log.txt
+logs/
+TestProject/logs/
+
+# Lock files & PIDs
+*.lock
+*.pid
+.daemon.lock
+.app.lock
+app_state.lock
+
+# Test data input and archive outputs
+TestProject/data/input/*
+!TestProject/data/input/.gitkeep
+TestProject/data/archive/*
+!TestProject/data/archive/.gitkeep
+
+# Environments & IDEs
+.venv/
+env/
+venv/
+ENV/
+.vscode/
+.idea/
+.DS_Store
